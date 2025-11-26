@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: task-manager-svc
+  labels:
+    app: task-manager
+spec:
+  type: ClusterIP
+  selector:
+    app: task-manager
+    version: blue   # default traffic goes to BLUE
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 3000
+

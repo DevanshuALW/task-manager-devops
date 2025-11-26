@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Manager - Green</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .version-badge {
+            display: inline-block;
+            background: #11998e;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .feature-badge {
+            display: inline-block;
+            background: #38ef7d;
+            color: #333;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 8px;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        select {
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        button {
+            padding: 12px 24px;
+            background: #11998e;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #0d7a6f;
+        }
+        .task-list {
+            list-style: none;
+        }
+        .task-item {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            transition: all 0.3s;
+            border-left: 4px solid transparent;
+        }
+        .task-item:hover {
+            transform: translateX(5px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .task-item.completed {
+            opacity: 0.6;
+            text-decoration: line-through;
+        }
+        .task-item.priority-high {
+            border-left-color: #e74c3c;
+        }
+        .task-item.priority-medium {
+            border-left-color: #f39c12;
+        }
+        .task-item.priority-low {
+            border-left-color: #3498db;
+        }
+        .task-text {
+            flex: 1;
+            margin-left: 15px;
+            font-size: 16px;
+        }
+        .priority-badge {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .priority-high {
+            background: #e74c3c;
+            color: white;
+        }
+        .priority-medium {
+            background: #f39c12;
+            color: white;
+        }
+        .priority-low {
+            background: #3498db;
+            color: white;
+        }
+        .checkbox {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+        .delete-btn {
+            padding: 8px 16px;
+            background: #e74c3c;
+            font-size: 14px;
+        }
+        .delete-btn:hover {
+            background: #c0392b;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="version-badge">🟢 Version 2.0.0 - Green</div>
+            <h1>Task Manager <span class="feature-badge">✨ NEW</span></h1>
+            <p>Now with Priority Support!</p>
+        </div>
+        
+        <div class="input-group">
+            <input type="text" id="taskInput" placeholder="Enter a new task...">
+            <select id="prioritySelect">
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+            </select>
+            <button onclick="addTask()">Add Task</button>
+        </div>
+        
+        <ul class="task-list" id="taskList"></ul>
+    </div>
+
+    <script>
+        async function loadTasks() {
+            const res = await fetch('/api/tasks');
+            const data = await res.json();
+            const taskList = document.getElementById('taskList');
+            taskList.innerHTML = '';
+            
+            data.tasks.forEach(task => {
+                const li = document.createElement('li');
+                li.className = 'task-item priority-' + task.priority + (task.completed ? ' completed' : '');
+                li.innerHTML = `
+                    <input type="checkbox" class="checkbox" ${task.completed ? 'checked' : ''} 
+                           onchange="toggleTask(${task.id})">
+                    <span class="task-text">${task.title}</span>
+                    <span class="priority-badge priority-${task.priority}">${task.priority.toUpperCase()}</span>
+                    <button class="delete-btn" onclick="deleteTask(${task.id})">Delete</button>
+                `;
+                taskList.appendChild(li);
+            });
+        }
+
+        async function addTask() {
+            const input = document.getElementById('taskInput');
+            const priority = document.getElementById('prioritySelect').value;
+            if (!input.value.trim()) return;
+            
+            await fetch('/api/tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title: input.value, priority })
+            });
+            
+            input.value = '';
+            loadTasks();
+        }
+
+        async function toggleTask(id) {
+            await fetch(`/api/tasks/${id}`, { method: 'PATCH' });
+            loadTasks();
+        }
+
+        async function deleteTask(id) {
+            await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
+            loadTasks();
+        }
+
+        document.getElementById('taskInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addTask();
+        });
+
+        loadTasks();
+    </script>
+</body>
+</html>
