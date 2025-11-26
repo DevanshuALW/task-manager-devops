@@ -1,48 +1,112 @@
 pipeline {
-  agent any
-  environment {
-    AWS_REGION = 'ap-south-1'
-    AWS_ACCOUNT_ID = "${env.AWS_ACCOUNT_ID}" // set in Jenkins global env or credentials
-    ECR = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/task-manager"
-    IMAGE_TAG = "${env.BUILD_NUMBER}"
-  }
-  stages {
-    stage('Checkout') { steps { checkout scm } }
-    stage('Build') {
-      steps {
-        sh "docker build -t task-manager:${IMAGE_TAG} ."
-      }
+    agent any
+
+    environment {
+        AWS_REGION = "ap-south-1"
+        AWS_ACCOUNT_ID = credentials('aws-account-id')      // only the numeric account ID
+        ECR_REPO = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/task-manager"
+        IMAGE_TAG = "${env.BUILD_NUMBER}"
     }
-    stage('Login & Push to ECR') {
-      steps {
-        withCredentials([usernamePassword(credentialsId: 'aws-ecr-creds', usernameVariable: 'AWS_USER', passwordVariable: 'AWS_SECRET')]) {
-          sh """
-            aws configure set aws_access_key_id ${AWS_USER}
-            aws configure set aws_secret_access_key ${AWS_SECRET}
-            aws configure set region ${AWS_REGION}
-            aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
-            docker tag task-manager:${IMAGE_TAG} ${ECR}:${IMAGE_TAG}
-            docker push ${ECR}:${IMAGE_TAG}
-          """
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
         }
-      }
+
+        stage('Build Docker Image') {
+            steps {
+                sh """
+                  echo "Building Docker image..."
+                  docker build -t task-manager:${IMAGE_TAG} .
+                """
+            }
+        }
+
+        stage('Login to ECR & Push') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'aws-ecr-creds', usernameVariable: 'AWS_USER', passwordVariable: 'AWS_SECRET')]) {
+                    sh """
+                      echo "Configuring AWS CLI..."
+                      aws configure set aws_access_key_id ${AWS_USER}
+                      aws configure set aws_secret_access_key ${AWS_SECRET}
+                      aws configure set region ${AWS_REGION}
+
+                      echo "Logging into ECR..."
+                      aws ecr get-login-password --region ${AWS_REGION} \
+                        | docker login --username AWS --password-stdin ${ECR_REPO}
+
+                      echo "Tagging & pushing image..."
+                      docker tag task-manager:${IMAGE_TAG} ${ECR_REPO}:${IMAGE_TAG}
+                      docker push ${ECR_REPO}:${IMAGE_TAG}
+                    """
+                }
+            }
+        }
+
+        stage('Deploy GREEN') {
+            steps {
+                sh """
+                  echo "Deploying Green version with tag: ${IMAGE_TAG}"
+
+                  sed "s|<ECR_URI>|${ECR_REPO}:${IMAGE_TAG}|g" k8s/deployment-green.yaml \
+                    > k8s/deployment-green-${IMAGE_TAG}.yaml
+
+                  kubectl apply -f k8s/deployment-green-${IMAGE_TAG}.yaml
+                  kubectl rollout status deployment/task-manager-green --timeout=120s
+                """
+            }
+        }
+
+        stage('Switch Traffic to GREEN') {
+            steps {
+                sh """
+                  echo "Switching traffic from BLUE → GREEN ..."
+                  kubectl patch svc task-manager-svc -p '{"spec":{"selector":{"app":"task-manager","version":"green"}}}'
+                """
+            }
+        }
+
+        stage('Smoke Test') {
+            steps {
+                sh """
+                  echo "Running smoke test..."
+
+                  ALB_URL=$(kubectl get ingress task-manager-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+
+                  echo "Testing: http://\$ALB_URL/health"
+
+                  STATUS_CODE=$(curl -o /dev/null -s -w "%{http_code}" http://\$ALB_URL/health)
+
+                  if [ "\$STATUS_CODE" -ne 200 ]; then
+                    echo "Smoke test failed! Rolling back..."
+                    exit 1
+                  fi
+
+                  echo "Smoke test passed!"
+                """
+            }
+        }
+
+        stage('Disable OLD (BLUE) Deployment') {
+            steps {
+                sh """
+                  echo "Scaling BLUE to zero..."
+                  kubectl scale deployment task-manager-blue --replicas=0
+                """
+            }
+        }
     }
-    stage('Deploy Green') {
-      steps {
-        sh """
-          sed 's|<ECR_URI>:{{NEW_TAG}}|${ECR}:${IMAGE_TAG}|g' k8s/deployment-green.yaml > /tmp/deployment-green-${IMAGE_TAG}.yaml
-          kubectl apply -f /tmp/deployment-green-${IMAGE_TAG}.yaml
-          kubectl rollout status deployment/task-manager-green --timeout=120s
-        """
-      }
+
+    post {
+        failure {
+            echo "Build failed — initiating rollback..."
+            sh """
+              echo "Switching traffic back to BLUE..."
+              kubectl patch svc task-manager-svc -p '{"spec":{"selector":{"app":"task-manager","version":"blue"}}}'
+            """
+        }
     }
-    stage('Optional Canary') {
-      steps {
-        echo "Canary steps can be automated here (e.g., update canary weight, monitor metrics)."
-      }
-    }
-  }
-  post {
-    failure { mail to: 'you@example.com', subject: "Build Failed", body: "Check Jenkins console" }
-  }
 }
