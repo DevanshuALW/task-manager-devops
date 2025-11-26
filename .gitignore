@@ -1,0 +1,52 @@
+# Node Modules
+node_modules/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# dotenv environment variables
+.env
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Optional cache dirs
+.cache/
+.tmp/
+
+# Output build
+dist/
+build/
+
+# NPM
+package-lock.json
+
+# VS Code
+.vscode/
+
+# Docker artifacts
+docker-compose.override.yml
+
+# AWS credentials (never commit)
+.aws/
+
+# Kubernetes local config
+.kube/
+
+# Local files
+*.pem
+
